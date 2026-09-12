@@ -58,7 +58,10 @@ jobs:
 
           if ! git diff --cached --quiet; then
             git commit -m "Daily CBBI update"
-            git push
+
+            git pull --rebase origin main
+
+            git push origin main
           fi
 
       - name: Configure GitHub Pages
