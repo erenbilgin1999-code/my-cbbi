@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>My CBBI Dashboard</title>
+
+  <style>
+    body {
+      font-family: system-ui, sans-serif;
+      background: #111;
+      color: #eee;
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 30px 20px;
+    }
+
+    h1 {
+      text-align: center;
+    }
+
+    #confidence {
+      font-size: 72px;
+      font-weight: bold;
+      text-align: center;
+      margin: 30px 0;
+    }
+
+    .metric {
+      display: flex;
+      justify-content: space-between;
+      border-bottom: 1px solid #333;
+      padding: 12px 0;
+    }
+
+    .value {
+      font-weight: bold;
+    }
+
+    #updated {
+      margin-top: 30px;
+      text-align: center;
+      color: #999;
+    }
+
+    canvas {
+      width: 100%;
+      height: 300px;
+      margin-top: 40px;
+      background: #181818;
+    }
+  </style>
+</head>
+
+<body>
+
+<h1>My Bitcoin Cycle Dashboard</h1>
+
+<div id="confidence">Loading…</div>
+
+<div id="price"></div>
+
+<h2>Indicators</h2>
+
+<div id="metrics"></div>
+
+<h2>CBBI History</h2>
+
+<canvas id="chart" width="900" height="300"></canvas>
+
+<div id="updated"></div>
+
+<script>
+
+async function loadData() {
+
+  const response = await fetch(
+    "data/latest.json?cache=" + Date.now()
+  );
+
+  const data = await response.json();
+
+  const confidenceData = data.Confidence;
+
+  const timestamps =
+    Object.keys(confidenceData)
+      .map(Number)
+      .sort((a,b) => a-b);
+
+  const latestTimestamp =
+    timestamps[timestamps.length - 1];
+
+  const confidence =
+    confidenceData[latestTimestamp];
+
+  document.getElementById("confidence").textContent =
+    Math.round(confidence * 100) + "%";
+
+  if (data.Price) {
+    const price = data.Price[latestTimestamp];
+
+    document.getElementById("price").innerHTML =
+      "<h2>Bitcoin price: $" +
+      Number(price).toLocaleString() +
+      "</h2>";
+  }
+
+  const ignore = ["Price", "Confidence"];
+
+  const metrics =
+    Object.keys(data)
+      .filter(name => !ignore.includes(name));
+
+  const container =
+    document.getElementById("metrics");
+
+  metrics.forEach(name => {
+
+    const value =
+      data[name][latestTimestamp];
+
+    if (value == null)
+      return;
+
+    const row =
+      document.createElement("div");
+
+    row.className = "metric";
+
+    row.innerHTML =
+      "<span>" + name + "</span>" +
+      "<span class='value'>" +
+      Math.round(value * 100) +
+      "%</span>";
+
+    container.appendChild(row);
+
+  });
+
+  const date =
+    new Date(latestTimestamp * 1000);
+
+  document.getElementById("updated").textContent =
+    "Latest data: " +
+    date.toLocaleDateString();
+
+  drawChart(
+    timestamps,
+    confidenceData
+  );
+}
+
+
+function drawChart(timestamps, values) {
+
+  const canvas =
+    document.getElementById("chart");
+
+  const ctx =
+    canvas.getContext("2d");
+
+  const w = canvas.width;
+  const h = canvas.height;
+
+  ctx.clearRect(0,0,w,h);
+
+  ctx.strokeStyle = "#aaa";
+  ctx.lineWidth = 2;
+
+  ctx.beginPath();
+
+  timestamps.forEach((timestamp,i) => {
+
+    const value =
+      values[timestamp];
+
+    if (value == null)
+      return;
+
+    const x =
+      (i / (timestamps.length - 1)) * w;
+
+    const y =
+      h - (value * h);
+
+    if (i === 0)
+      ctx.moveTo(x,y);
+    else
+      ctx.lineTo(x,y);
+
+  });
+
+  ctx.stroke();
+}
+
+
+loadData();
+
+</script>
+
+</body>
+</html>
