@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
+
   <title>My CBBI Dashboard</title>
 
   <style>
@@ -19,22 +20,57 @@
       text-align: center;
     }
 
+    .score-label {
+      text-align: center;
+      color: #aaa;
+      margin-top: 30px;
+    }
+
     #confidence {
       font-size: 72px;
       font-weight: bold;
       text-align: center;
-      margin: 30px 0;
+      margin: 5px 0;
+    }
+
+    #official {
+      text-align: center;
+      color: #aaa;
+      margin-bottom: 30px;
     }
 
     .metric {
       display: flex;
       justify-content: space-between;
+      align-items: center;
       border-bottom: 1px solid #333;
       padding: 12px 0;
     }
 
+    .metric-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .metric input {
+      width: 18px;
+      height: 18px;
+      cursor: pointer;
+    }
+
+    .metric.off {
+      opacity: 0.4;
+    }
+
     .value {
       font-weight: bold;
+    }
+
+    .metric-date {
+      font-size: 11px;
+      color: #777;
+      margin-left: 5px;
     }
 
     #updated {
@@ -46,8 +82,14 @@
     canvas {
       width: 100%;
       height: 300px;
-      margin-top: 40px;
+      margin-top: 30px;
       background: #181818;
+    }
+
+    .hint {
+      color: #888;
+      font-size: 14px;
+      margin-bottom: 15px;
     }
   </style>
 </head>
@@ -56,141 +98,549 @@
 
 <h1>My Bitcoin Cycle Dashboard</h1>
 
-<div id="confidence">Loading…</div>
+<div class="score-label">
+  My selected indicator score
+</div>
+
+<div id="confidence">
+  Loading…
+</div>
+
+<div id="official"></div>
 
 <div id="price"></div>
 
 <h2>Indicators</h2>
 
+<div class="hint">
+  Check or uncheck indicators to include or exclude them from your custom score.
+</div>
+
 <div id="metrics"></div>
 
-<h2>CBBI History</h2>
+<h2>My Selected Score History</h2>
 
 <canvas id="chart" width="900" height="300"></canvas>
 
 <div id="updated"></div>
 
+
 <script>
 
-async function loadData() {
+const METRICS = [
+  ["PiCycle", "Pi Cycle Top"],
+  ["RUPL", "RUPL / NUPL"],
+  ["RHODL", "RHODL Ratio"],
+  ["Puell", "Puell Multiple"],
+  ["2YMA", "2 Year Moving Average"],
+  ["Trolololo", "Trolololo Trend Line"],
+  ["MVRV", "MVRV Z-Score"],
+  ["ReserveRisk", "Reserve Risk"],
+  ["Woobull", "Woobull Top Cap vs CVDD"]
+];
 
-  const response = await fetch(
-    "data/latest.json?cache=" + Date.now()
-  );
+let DATA = null;
+let latestTimestamp = null;
 
-  const data = await response.json();
 
-  const confidenceData = data.Confidence;
+/* Find newest available value.
+   This is important for Woobull because
+   it can sometimes update slightly later. */
+
+function latestAvailable(series, beforeTimestamp) {
+
+  if (!series)
+    return null;
 
   const timestamps =
-    Object.keys(confidenceData)
+    Object.keys(series)
       .map(Number)
-      .sort((a,b) => a-b);
+      .filter(t => t <= beforeTimestamp)
+      .sort((a,b) => b-a);
 
-  const latestTimestamp =
-    timestamps[timestamps.length - 1];
+  for (const timestamp of timestamps) {
 
-  const confidence =
-    confidenceData[latestTimestamp];
+    const value =
+      Number(series[timestamp]);
 
-  document.getElementById("confidence").textContent =
-    Math.round(confidence * 100) + "%";
-
-  if (data.Price) {
-    const price = data.Price[latestTimestamp];
-
-    document.getElementById("price").innerHTML =
-      "<h2>Bitcoin price: $" +
-      Number(price).toLocaleString() +
-      "</h2>";
+    if (
+      series[timestamp] !== null &&
+      Number.isFinite(value)
+    ) {
+      return {
+        value: value,
+        timestamp: timestamp
+      };
+    }
   }
 
-  const ignore = ["Price", "Confidence"];
+  return null;
+}
 
-  const metrics =
-    Object.keys(data)
-      .filter(name => !ignore.includes(name));
+
+function getSavedSelection() {
+
+  try {
+
+    const saved =
+      JSON.parse(
+        localStorage.getItem("cbbiSelected")
+      );
+
+    if (Array.isArray(saved))
+      return saved;
+
+  } catch {}
+
+  return METRICS.map(x => x[0]);
+}
+
+
+function getSelectedMetrics() {
+
+  return Array.from(
+    document.querySelectorAll(
+      ".metric-toggle:checked"
+    )
+  ).map(x => x.dataset.metric);
+}
+
+
+function saveSelection() {
+
+  localStorage.setItem(
+    "cbbiSelected",
+    JSON.stringify(
+      getSelectedMetrics()
+    )
+  );
+}
+
+
+function calculateCurrentCustomScore() {
+
+  const selected =
+    getSelectedMetrics();
+
+  const values = [];
+
+  selected.forEach(metric => {
+
+    const result =
+      latestAvailable(
+        DATA[metric],
+        latestTimestamp
+      );
+
+    if (result)
+      values.push(result.value);
+
+  });
+
+  if (values.length === 0)
+    return null;
+
+  return (
+    values.reduce((a,b) => a+b, 0)
+    /
+    values.length
+  );
+}
+
+
+function updateDashboard() {
+
+  const score =
+    calculateCurrentCustomScore();
+
+  document.getElementById(
+    "confidence"
+  ).textContent =
+    score === null
+      ? "--"
+      : Math.round(score * 100) + "%";
+
+
+  document.querySelectorAll(
+    ".metric"
+  ).forEach(row => {
+
+    const checkbox =
+      row.querySelector("input");
+
+    row.classList.toggle(
+      "off",
+      !checkbox.checked
+    );
+
+  });
+
+
+  saveSelection();
+
+  drawChart();
+
+}
+
+
+function renderMetrics() {
 
   const container =
     document.getElementById("metrics");
 
-  metrics.forEach(name => {
+  container.innerHTML = "";
 
-    const value =
-      data[name][latestTimestamp];
+  const saved =
+    getSavedSelection();
 
-    if (value == null)
-      return;
+
+  METRICS.forEach(([key,label]) => {
+
+    const result =
+      latestAvailable(
+        DATA[key],
+        latestTimestamp
+      );
+
 
     const row =
       document.createElement("div");
 
     row.className = "metric";
 
-    row.innerHTML =
-      "<span>" + name + "</span>" +
-      "<span class='value'>" +
-      Math.round(value * 100) +
-      "%</span>";
 
-    container.appendChild(row);
+    const left =
+      document.createElement("div");
+
+    left.className =
+      "metric-left";
+
+
+    const checkbox =
+      document.createElement("input");
+
+    checkbox.type =
+      "checkbox";
+
+    checkbox.className =
+      "metric-toggle";
+
+    checkbox.dataset.metric =
+      key;
+
+    checkbox.checked =
+      saved.includes(key);
+
+    checkbox.addEventListener(
+      "change",
+      updateDashboard
+    );
+
+
+    const name =
+      document.createElement("span");
+
+    name.textContent =
+      label;
+
+
+    left.appendChild(
+      checkbox
+    );
+
+    left.appendChild(
+      name
+    );
+
+
+    const value =
+      document.createElement("span");
+
+    value.className =
+      "value";
+
+
+    if (result) {
+
+      value.textContent =
+        Math.round(
+          result.value * 100
+        ) + "%";
+
+
+      if (
+        result.timestamp !==
+        latestTimestamp
+      ) {
+
+        const date =
+          new Date(
+            result.timestamp * 1000
+          );
+
+        const small =
+          document.createElement("span");
+
+        small.className =
+          "metric-date";
+
+        small.textContent =
+          "last " +
+          date.toLocaleDateString();
+
+        value.appendChild(
+          small
+        );
+
+      }
+
+    } else {
+
+      value.textContent =
+        "N/A";
+
+    }
+
+
+    row.appendChild(
+      left
+    );
+
+    row.appendChild(
+      value
+    );
+
+    container.appendChild(
+      row
+    );
 
   });
 
-  const date =
-    new Date(latestTimestamp * 1000);
-
-  document.getElementById("updated").textContent =
-    "Latest data: " +
-    date.toLocaleDateString();
-
-  drawChart(
-    timestamps,
-    confidenceData
-  );
 }
 
 
-function drawChart(timestamps, values) {
+function drawChart() {
+
+  const selected =
+    getSelectedMetrics();
 
   const canvas =
-    document.getElementById("chart");
+    document.getElementById(
+      "chart"
+    );
 
   const ctx =
     canvas.getContext("2d");
 
-  const w = canvas.width;
-  const h = canvas.height;
+  const w =
+    canvas.width;
 
-  ctx.clearRect(0,0,w,h);
+  const h =
+    canvas.height;
 
-  ctx.strokeStyle = "#aaa";
-  ctx.lineWidth = 2;
 
-  ctx.beginPath();
+  ctx.clearRect(
+    0,
+    0,
+    w,
+    h
+  );
 
-  timestamps.forEach((timestamp,i) => {
 
-    const value =
-      values[timestamp];
+  if (selected.length === 0)
+    return;
 
-    if (value == null)
-      return;
 
-    const x =
-      (i / (timestamps.length - 1)) * w;
+  const timestamps =
+    Object.keys(
+      DATA.Confidence
+    )
+      .map(Number)
+      .sort((a,b) => a-b);
 
-    const y =
-      h - (value * h);
 
-    if (i === 0)
-      ctx.moveTo(x,y);
-    else
-      ctx.lineTo(x,y);
+  const points = [];
+
+
+  timestamps.forEach(timestamp => {
+
+    const values = [];
+
+    selected.forEach(metric => {
+
+      const raw =
+        DATA[metric]?.[timestamp];
+
+      if (
+        raw !== null &&
+        raw !== undefined &&
+        Number.isFinite(Number(raw))
+      ) {
+
+        values.push(
+          Number(raw)
+        );
+
+      }
+
+    });
+
+
+    if (values.length) {
+
+      const average =
+        values.reduce(
+          (a,b) => a+b,
+          0
+        )
+        /
+        values.length;
+
+      points.push(
+        average
+      );
+
+    } else {
+
+      points.push(
+        null
+      );
+
+    }
 
   });
 
+
+  ctx.strokeStyle =
+    "#aaa";
+
+  ctx.lineWidth =
+    2;
+
+  ctx.beginPath();
+
+
+  let started =
+    false;
+
+
+  points.forEach((value,i) => {
+
+    if (value === null)
+      return;
+
+
+    const x =
+      (
+        i /
+        (points.length - 1)
+      ) * w;
+
+
+    const y =
+      h -
+      (value * h);
+
+
+    if (!started) {
+
+      ctx.moveTo(
+        x,
+        y
+      );
+
+      started =
+        true;
+
+    } else {
+
+      ctx.lineTo(
+        x,
+        y
+      );
+
+    }
+
+  });
+
+
   ctx.stroke();
+
+}
+
+
+async function loadData() {
+
+  const response =
+    await fetch(
+      "data/latest.json?cache=" +
+      Date.now()
+    );
+
+
+  DATA =
+    await response.json();
+
+
+  const confidenceLatest =
+    latestAvailable(
+      DATA.Confidence,
+      Infinity
+    );
+
+
+  latestTimestamp =
+    confidenceLatest.timestamp;
+
+
+  document.getElementById(
+    "official"
+  ).textContent =
+    "Official CBBI: " +
+    Math.round(
+      confidenceLatest.value * 100
+    ) +
+    "%";
+
+
+  const price =
+    latestAvailable(
+      DATA.Price,
+      latestTimestamp
+    );
+
+
+  if (price) {
+
+    document.getElementById(
+      "price"
+    ).innerHTML =
+      "<h2>Bitcoin price: $" +
+      Math.round(
+        price.value
+      ).toLocaleString() +
+      "</h2>";
+
+  }
+
+
+  renderMetrics();
+
+  updateDashboard();
+
+
+  const date =
+    new Date(
+      latestTimestamp * 1000
+    );
+
+
+  document.getElementById(
+    "updated"
+  ).textContent =
+    "Latest CBBI data: " +
+    date.toLocaleDateString();
+
 }
 
 
