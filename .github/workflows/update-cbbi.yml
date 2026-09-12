@@ -1,0 +1,74 @@
+name: Update CBBI
+
+on:
+  workflow_dispatch:
+
+  schedule:
+    - cron: "17 9 * * *"
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Install CBBI dependencies
+        run: uv sync --frozen
+
+      - name: Calculate latest CBBI
+        run: |
+          mkdir -p site/data
+          uv run python main.py \
+            --output_dir=site/data \
+            --json_file=latest.json \
+            --charts_file=charts.svg
+
+      - name: Remove calculation chart
+        run: rm -f site/data/charts.svg
+
+      - name: Save today's data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add site/data/latest.json
+
+          if ! git diff --cached --quiet; then
+            git commit -m "Daily CBBI update"
+            git push
+          fi
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload website
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Deploy website
+        id: deployment
+        uses: actions/deploy-pages@v4
